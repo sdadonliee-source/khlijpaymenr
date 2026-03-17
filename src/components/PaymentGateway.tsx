@@ -1,19 +1,47 @@
 import { useState } from 'react';
 import { GCC_COUNTRIES } from '../constants';
-import { Building2, CreditCard, Wallet, CheckCircle2, Circle } from 'lucide-react';
+import { Building2, CreditCard, Wallet, CheckCircle2, Circle, Loader2, ArrowRight } from 'lucide-react';
 
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export default function PaymentGateway({ lang }: { lang: 'EN' | 'AR' }) {
+export default function PaymentGateway({ lang, user }: { lang: 'EN' | 'AR', user: any }) {
   const [selectedCountry, setSelectedCountry] = useState('SA');
   const [linkedMethods, setLinkedMethods] = useState<Record<string, boolean>>({
     'SA-mada': true,
     'SA-stcpay': true,
     'AE-applepay': true,
   });
+  const [showSimulator, setShowSimulator] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<'awaiting' | 'processing' | 'completed'>('awaiting');
+
+  const handleTestCheckout = async () => {
+    setPaymentStatus('processing');
+    try {
+      const response = await fetch('/api/fiat/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user?.uid,
+          amount: 150.00,
+          currency: (GCC_COUNTRIES as any)[selectedCountry].currency,
+          method: 'Card'
+        })
+      });
+      
+      if (response.ok) {
+        setPaymentStatus('completed');
+      } else {
+        console.error('Checkout failed');
+        setPaymentStatus('awaiting');
+      }
+    } catch (error) {
+      console.error('Error during checkout:', error);
+      setPaymentStatus('awaiting');
+    }
+  };
 
   const t = (key: string) => {
     const translations: any = {
@@ -112,6 +140,74 @@ export default function PaymentGateway({ lang }: { lang: 'EN' | 'AR' }) {
       {renderMethods('wallet', t('wallets'), <Wallet className="w-5 h-5 text-indigo-500" />)}
       {renderMethods('bank', t('banks'), <Building2 className="w-5 h-5 text-blue-500" />)}
       {renderMethods('card', t('cards'), <CreditCard className="w-5 h-5 text-amber-500" />)}
+
+      <div className="mt-8 pt-8 border-t border-zinc-200">
+        <button 
+          onClick={() => { setShowSimulator(true); setPaymentStatus('awaiting'); }}
+          className="w-full md:w-auto px-8 py-3 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+        >
+          {lang === 'EN' ? 'Test Checkout' : 'تجربة الدفع'} <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Checkout Simulator Modal */}
+      {showSimulator && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-zinc-900 text-white p-6 text-center">
+              <h3 className="text-lg font-bold mb-1">{lang === 'EN' ? 'Test Checkout' : 'تجربة الدفع'}</h3>
+              <p className="text-zinc-400 text-sm">{countryData.name[lang]}</p>
+            </div>
+            
+            <div className="p-6">
+              {paymentStatus === 'completed' ? (
+                <div className="text-center py-8">
+                  <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-600" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-zinc-900 mb-2">{lang === 'EN' ? 'Payment Successful' : 'تم الدفع بنجاح'}</h3>
+                  <p className="text-zinc-500 mb-8">150.00 {countryData.currency.EN} received</p>
+                  <button 
+                    onClick={() => setShowSimulator(false)}
+                    className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl transition-colors"
+                  >
+                    {lang === 'EN' ? 'Close' : 'إغلاق'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="text-center mb-8">
+                    <p className="text-zinc-500 text-sm mb-1">{lang === 'EN' ? 'Amount Due' : 'المبلغ المطلوب'}</p>
+                    <p className="text-3xl font-mono font-bold text-zinc-900 flex items-center justify-center gap-2">
+                      150.00 <span className="text-lg text-zinc-400">{countryData.currency.EN}</span>
+                    </p>
+                  </div>
+
+                  <button 
+                    onClick={handleTestCheckout}
+                    disabled={paymentStatus === 'processing'}
+                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 mb-4"
+                  >
+                    {paymentStatus === 'processing' ? (
+                      <><Loader2 className="w-5 h-5 animate-spin" /> {lang === 'EN' ? 'Processing...' : 'جاري المعالجة...'}</>
+                    ) : (
+                      <>{lang === 'EN' ? 'Pay Now' : 'ادفع الآن'}</>
+                    )}
+                  </button>
+                  
+                  <button 
+                    onClick={() => setShowSimulator(false)}
+                    disabled={paymentStatus === 'processing'}
+                    className="w-full py-3 text-zinc-500 hover:text-zinc-800 font-semibold transition-colors"
+                  >
+                    {lang === 'EN' ? 'Cancel' : 'إلغاء'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

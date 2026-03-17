@@ -1,0 +1,156 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - role: string (required, 'admin' or 'merchant')
+    //   - createdAt: string (required)
+    //
+    // Collection: transactions
+    // Document ID: {transactionId}
+    // Fields:
+    //   - id: string (required)
+    //   - merchant: string (required)
+    //   - amount: number (required)
+    //   - currency: string (required)
+    //   - type: string (required, 'payment', 'deposit', 'withdrawal')
+    //   - status: string (required, 'completed', 'pending', 'failed')
+    //   - date: string (required)
+    //   - timestamp: string (required)
+    //   - notes: string (optional)
+    //   - paymentMethod: string (optional)
+    //   - userId: string (required)
+    //   - createdAt: string (required)
+    //
+    // Collection: developerSettings
+    // Document ID: {userId}
+    // Fields:
+    //   - userId: string (required)
+    //   - apiKey: string (required)
+    //   - webhookSecret: string (required)
+    //   - webhookUrl: string (optional)
+    //   - updatedAt: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "sdadonliee@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) && data.email.size() < 100 &&
+             data.role in ['admin', 'merchant'] &&
+             data.createdAt is string && data.createdAt.size() < 50;
+    }
+
+    function isValidTransaction(data) {
+      return hasOnlyAllowedFields(['id', 'merchant', 'amount', 'currency', 'type', 'status', 'date', 'timestamp', 'notes', 'paymentMethod', 'userId', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.merchant is string && data.merchant.size() > 0 && data.merchant.size() < 100 &&
+             data.amount is number && data.amount >= 0 &&
+             data.currency is string && data.currency.size() > 0 && data.currency.size() < 10 &&
+             data.type in ['payment', 'deposit', 'withdrawal'] &&
+             data.status in ['completed', 'pending', 'failed'] &&
+             data.date is string && data.date.size() > 0 && data.date.size() < 50 &&
+             data.timestamp is string && data.timestamp.size() > 0 && data.timestamp.size() < 50 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000)) &&
+             (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod.size() < 100)) &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.createdAt is string && data.createdAt.size() < 50;
+    }
+
+    function isValidDeveloperSettings(data) {
+      return hasOnlyAllowedFields(['userId', 'apiKey', 'webhookSecret', 'webhookUrl', 'updatedAt']) &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.apiKey is string && data.apiKey.size() > 0 && data.apiKey.size() < 200 &&
+             data.webhookSecret is string && data.webhookSecret.size() > 0 && data.webhookSecret.size() < 200 &&
+             (!('webhookUrl' in data) || (data.webhookUrl is string && data.webhookUrl.size() < 500)) &&
+             data.updatedAt is string && data.updatedAt.size() < 50;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    ((isOwner(userId) && request.resource.data.role == 'merchant') || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role && uidNotModified()) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidTransaction(request.resource.data) &&
+                    request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidTransaction(request.resource.data) &&
+                    resource.data.userId == request.auth.uid &&
+                    request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /developerSettings/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidDeveloperSettings(request.resource.data) &&
+                    request.resource.data.userId == request.auth.uid && isOwner(userId);
+      allow update: if isAuthenticated() && isValidDeveloperSettings(request.resource.data) &&
+                    resource.data.userId == request.auth.uid &&
+                    request.resource.data.userId == resource.data.userId && isOwner(userId);
+      allow delete: if isAdmin();
+    }
+  }
+}

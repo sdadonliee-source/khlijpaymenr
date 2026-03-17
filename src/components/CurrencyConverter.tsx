@@ -11,20 +11,36 @@ export default function CurrencyConverter({ lang }: { lang: 'EN' | 'AR' }) {
   const [from, setFrom] = useState('SAR');
   const [to, setTo] = useState('AED');
   const [result, setResult] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const t = (key: string) => {
     const translations: any = {
-      EN: { title: 'Currency Converter', amount: 'Amount', from: 'From', to: 'To', convert: 'Convert', result: 'Result' },
-      AR: { title: 'محول العملات', amount: 'المبلغ', from: 'من', to: 'إلى', convert: 'تحويل', result: 'النتيجة' }
+      EN: { title: 'Currency Converter', amount: 'Amount', from: 'From', to: 'To', convert: 'Convert', result: 'Result', loading: 'Converting...', error: 'Error fetching rates' },
+      AR: { title: 'محول العملات', amount: 'المبلغ', from: 'من', to: 'إلى', convert: 'تحويل', result: 'النتيجة', loading: 'جاري التحويل...', error: 'خطأ في جلب أسعار الصرف' }
     };
     return translations[lang][key];
   };
 
-  const handleConvert = () => {
-    // Mock exchange rates
-    const rates: any = { SAR: 1, AED: 0.98, QAR: 0.97, BHD: 0.10, KWD: 0.08, OMR: 0.10 };
-    const converted = (amount * rates[to]) / rates[from];
-    setResult(converted);
+  const handleConvert = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${from}`);
+      if (!response.ok) throw new Error('Network response was not ok');
+      const data = await response.json();
+      const rate = data.rates[to];
+      if (rate) {
+        setResult(amount * rate);
+      } else {
+        throw new Error('Rate not found');
+      }
+    } catch (err) {
+      console.error('Error fetching exchange rates:', err);
+      setError(t('error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getCurrencyLabel = (currencyCode: string) => {
@@ -46,8 +62,19 @@ export default function CurrencyConverter({ lang }: { lang: 'EN' | 'AR' }) {
           </select>
         </div>
       </div>
-      <button onClick={handleConvert} className="w-full px-6 py-3 bg-zinc-900 text-white rounded-lg font-semibold">{t('convert')}</button>
-      {result !== null && (
+      <button 
+        onClick={handleConvert} 
+        disabled={loading}
+        className="w-full px-6 py-3 bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-400 text-white rounded-lg font-semibold transition-colors"
+      >
+        {loading ? t('loading') : t('convert')}
+      </button>
+      {error && (
+        <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm text-center font-semibold">
+          {error}
+        </div>
+      )}
+      {result !== null && !error && (
         <div className="mt-6 p-4 bg-zinc-100 rounded-xl text-center">
           <p className="text-xs md:text-sm font-semibold text-zinc-500 uppercase tracking-wider">{t('result')}</p>
           <p className="font-mono text-xl md:text-2xl mt-1">{result.toFixed(2)} {getCurrencyLabel(to)}</p>

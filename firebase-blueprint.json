@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "merchant"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A payment or settlement transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "merchant": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "type": { "type": "string", "enum": ["payment", "deposit", "withdrawal"] },
+        "status": { "type": "string", "enum": ["completed", "pending", "failed"] },
+        "date": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "notes": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "merchant", "amount", "currency", "type", "status", "date", "timestamp", "userId", "createdAt"]
+    },
+    "DeveloperSettings": {
+      "title": "Developer Settings",
+      "description": "API keys and webhook configurations for a merchant",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "apiKey": { "type": "string" },
+        "webhookSecret": { "type": "string" },
+        "webhookUrl": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "apiKey", "webhookSecret", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Transactions belonging to merchants"
+    },
+    "developerSettings/{userId}": {
+      "schema": { "$ref": "#/entities/DeveloperSettings" },
+      "description": "Developer settings for merchants"
+    }
+  }
+}

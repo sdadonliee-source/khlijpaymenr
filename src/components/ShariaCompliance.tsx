@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export default function ShariaCompliance({ lang }: { lang: 'EN' | 'AR' }) {
+export default function ShariaCompliance({ lang, user }: { lang: 'EN' | 'AR', user: any }) {
   const [checklist, setChecklist] = useState([
     { id: 1, en: 'No Riba (Interest)', ar: 'خلو المعاملات من الربا', compliant: false },
     { id: 2, en: 'No Gharar (Uncertainty)', ar: 'خلو المعاملات من الغرر', compliant: false },
@@ -13,6 +15,31 @@ export default function ShariaCompliance({ lang }: { lang: 'EN' | 'AR' }) {
     { id: 4, en: 'Zakat Compliance', ar: 'الالتزام بحساب وإخراج الزكاة', compliant: false },
   ]);
   const [reviewDate, setReviewDate] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchCompliance = async () => {
+      const docRef = doc(db, 'shariaCompliance', user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.checklist) setChecklist(data.checklist);
+        if (data.reviewDate) setReviewDate(data.reviewDate);
+      }
+    };
+    fetchCompliance();
+  }, [user]);
+
+  const saveCompliance = async (newChecklist: any, newDate: string) => {
+    if (!user) return;
+    const docRef = doc(db, 'shariaCompliance', user.uid);
+    await setDoc(docRef, {
+      userId: user.uid,
+      checklist: newChecklist,
+      reviewDate: newDate,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  };
 
   const t = (key: string) => {
     const translations: any = {
@@ -23,7 +50,15 @@ export default function ShariaCompliance({ lang }: { lang: 'EN' | 'AR' }) {
   };
 
   const toggleCompliance = (id: number) => {
-    setChecklist(checklist.map(item => item.id === id ? { ...item, compliant: !item.compliant } : item));
+    const newChecklist = checklist.map(item => item.id === id ? { ...item, compliant: !item.compliant } : item);
+    setChecklist(newChecklist);
+    saveCompliance(newChecklist, reviewDate);
+  };
+
+  const handleDateChange = (e: any) => {
+    const newDate = e.target.value;
+    setReviewDate(newDate);
+    saveCompliance(checklist, newDate);
   };
 
   return (
@@ -31,7 +66,7 @@ export default function ShariaCompliance({ lang }: { lang: 'EN' | 'AR' }) {
       <h2 className="text-xl md:text-2xl font-bold mb-6 md:mb-8">{t('title')}</h2>
       <div className="mb-6 md:mb-8">
         <label className="block mb-2 text-xs md:text-sm font-semibold text-zinc-500 uppercase tracking-wider">{t('date')}:</label>
-        <input type="date" className="p-3 border border-zinc-300 rounded-lg w-full" value={reviewDate} onChange={e => setReviewDate(e.target.value)} />
+        <input type="date" className="p-3 border border-zinc-300 rounded-lg w-full" value={reviewDate} onChange={handleDateChange} />
       </div>
       <div className="space-y-4">
         {checklist.map(item => (

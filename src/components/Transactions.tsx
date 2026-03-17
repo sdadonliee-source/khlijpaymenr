@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import React from 'react';
+import { Download } from 'lucide-react';
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { db } from '../firebase';
 import { GCC_COUNTRIES } from '../constants';
 
 /**
@@ -7,15 +10,25 @@ import { GCC_COUNTRIES } from '../constants';
  * SPDX-License-Identifier: Apache-2.0
  */
 
-function NewTransactionForm({ onAdd, lang }: { onAdd: (txn: any) => void, lang: 'EN' | 'AR' }) {
+function NewTransactionForm({ onAdd, lang, user }: { onAdd: (txn: any) => void, lang: 'EN' | 'AR', user: any }) {
   const [formData, setFormData] = useState({
     id: '', merchant: '', amount: 0, currency: 'SAR', type: 'payment', status: 'completed', date: '', timestamp: '', notes: '', paymentMethod: ''
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onAdd({ ...formData, amount: Number(formData.amount) });
-    setFormData({ id: '', merchant: '', amount: 0, currency: 'SAR', type: 'payment', status: 'completed', date: '', timestamp: '', notes: '', paymentMethod: '' });
+    try {
+      const newTxn = {
+        ...formData,
+        amount: Number(formData.amount),
+        userId: user.uid,
+        createdAt: new Date().toISOString()
+      };
+      await addDoc(collection(db, 'transactions'), newTxn);
+      setFormData({ id: '', merchant: '', amount: 0, currency: 'SAR', type: 'payment', status: 'completed', date: '', timestamp: '', notes: '', paymentMethod: '' });
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+    }
   };
 
   const t = (key: string) => {
@@ -65,31 +78,36 @@ function NewTransactionForm({ onAdd, lang }: { onAdd: (txn: any) => void, lang: 
   );
 }
 
-export default function Transactions({ lang }: { lang: 'EN' | 'AR' }) {
+export default function Transactions({ lang, user }: { lang: 'EN' | 'AR', user: any }) {
   const [currentPage, setCurrentPage] = useState(1);
-  const [transactions, setTransactions] = useState([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
   const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
   const itemsPerPage = 5;
 
   useEffect(() => {
-    fetch('/api/records')
-      .then(res => res.json())
-      .then(data => setTransactions(data))
-      .catch(err => console.error('Error fetching transactions:', err));
-  }, []);
+    if (!user) return;
+    const q = query(collection(db, 'transactions'), where('userId', '==', user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const txns: any[] = [];
+      snapshot.forEach((doc) => {
+        txns.push({ ...doc.data(), docId: doc.id });
+      });
+      setTransactions(txns);
+    }, (error) => {
+      console.error('Firestore Error:', error);
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   const t = (key: string) => {
     const translations: any = {
-      EN: { title: 'Recent Transactions', search: 'Search...', id: 'ID', merchant: 'Merchant', amount: 'Amount', currency: 'Currency', type: 'Type', status: 'Status', date: 'Date', timestamp: 'Timestamp', prev: 'Prev', next: 'Next', page: 'Page', details: 'Transaction Details', notes: 'Notes', close: 'Close', payment: 'Payment', deposit: 'Deposit', withdrawal: 'Withdrawal', completed: 'Completed', pending: 'Pending', failed: 'Failed', paymentMethod: 'Payment Method', of: 'of' },
-      AR: { title: 'المعاملات الأخيرة', search: 'بحث...', id: 'المعرف', merchant: 'التاجر', amount: 'المبلغ', currency: 'العملة', type: 'النوع', status: 'الحالة', date: 'التاريخ', timestamp: 'الوقت', prev: 'السابق', next: 'التالي', page: 'صفحة', details: 'تفاصيل المعاملة', notes: 'ملاحظات', close: 'إغلاق', payment: 'دفع', deposit: 'إيداع', withdrawal: 'سحب', completed: 'مكتملة', pending: 'معلقة', failed: 'فاشلة', paymentMethod: 'طريقة الدفع', of: 'من' }
+      EN: { title: 'Recent Transactions', search: 'Search...', id: 'ID', merchant: 'Merchant', amount: 'Amount', currency: 'Currency', type: 'Type', status: 'Status', date: 'Date', timestamp: 'Timestamp', prev: 'Prev', next: 'Next', page: 'Page', details: 'Transaction Details', notes: 'Notes', close: 'Close', payment: 'Payment', deposit: 'Deposit', withdrawal: 'Withdrawal', completed: 'Completed', pending: 'Pending', failed: 'Failed', paymentMethod: 'Payment Method', of: 'of', all: 'All Statuses', export: 'Export CSV' },
+      AR: { title: 'المعاملات الأخيرة', search: 'بحث...', id: 'المعرف', merchant: 'التاجر', amount: 'المبلغ', currency: 'العملة', type: 'النوع', status: 'الحالة', date: 'التاريخ', timestamp: 'الوقت', prev: 'السابق', next: 'التالي', page: 'صفحة', details: 'تفاصيل المعاملة', notes: 'ملاحظات', close: 'إغلاق', payment: 'دفع', deposit: 'إيداع', withdrawal: 'سحب', completed: 'مكتملة', pending: 'معلقة', failed: 'فاشلة', paymentMethod: 'طريقة الدفع', of: 'من', all: 'جميع الحالات', export: 'تصدير CSV' }
     };
     return translations[lang][key];
-  };
-
-  const handleAddTransaction = (newTxn: any) => {
-    setTransactions([newTxn, ...transactions]);
   };
 
   const handleSort = (key: string) => {
@@ -106,13 +124,17 @@ export default function Transactions({ lang }: { lang: 'EN' | 'AR' }) {
   };
 
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((txn: any) =>
-      txn.merchant.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      txn.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      txn.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      txn.amount.toString().includes(searchTerm)
-    );
-  }, [transactions, searchTerm]);
+    return transactions.filter((txn: any) => {
+      const matchesSearch = txn.merchant.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        txn.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        txn.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        txn.amount.toString().includes(searchTerm);
+      
+      const matchesStatus = statusFilter === 'all' || txn.status.toLowerCase() === statusFilter.toLowerCase();
+      
+      return matchesSearch && matchesStatus;
+    });
+  }, [transactions, searchTerm, statusFilter]);
 
   const sortedTransactions = useMemo(() => {
     const sortableTransactions = [...filteredTransactions];
@@ -129,19 +151,54 @@ export default function Transactions({ lang }: { lang: 'EN' | 'AR' }) {
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentTransactions = sortedTransactions.slice(indexOfFirstItem, indexOfLastItem);
 
+  const exportCSV = () => {
+    if (sortedTransactions.length === 0) return;
+    const headers = ['ID', 'Merchant', 'Amount', 'Currency', 'Payment Method', 'Type', 'Status', 'Date', 'Timestamp', 'Notes'];
+    const csvContent = [
+      headers.join(','),
+      ...sortedTransactions.map(txn => 
+        `"${txn.id}","${txn.merchant}","${txn.amount}","${txn.currency}","${txn.paymentMethod}","${txn.type}","${txn.status}","${txn.date}","${txn.timestamp}","${txn.notes || ''}"`
+      )
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div>
-      <NewTransactionForm onAdd={handleAddTransaction} lang={lang} />
+      <NewTransactionForm onAdd={() => {}} lang={lang} user={user} />
       <div className="bg-white p-4 md:p-8 rounded-2xl shadow-sm border border-zinc-200">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <h2 className="text-xl font-bold">{t('title')}</h2>
-          <input
-            type="text"
-            placeholder={t('search')}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full sm:w-auto px-4 py-2 border border-zinc-300 rounded-lg text-sm"
-          />
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <button onClick={exportCSV} className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors">
+              <Download className="w-4 h-4" /> {t('export')}
+            </button>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full sm:w-auto px-4 py-2 border border-zinc-300 rounded-lg text-sm bg-white"
+            >
+              <option value="all">{t('all')}</option>
+              <option value="completed">{t('completed')}</option>
+              <option value="pending">{t('pending')}</option>
+              <option value="failed">{t('failed')}</option>
+            </select>
+            <input
+              type="text"
+              placeholder={t('search')}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full sm:w-auto px-4 py-2 border border-zinc-300 rounded-lg text-sm"
+            />
+          </div>
         </div>
         <div className="w-full">
           <div className="hidden md:grid md:grid-cols-9 gap-4 text-xs font-semibold uppercase text-zinc-500 tracking-wider border-b border-zinc-200 pb-4 mb-2">
@@ -164,7 +221,7 @@ export default function Transactions({ lang }: { lang: 'EN' | 'AR' }) {
                 </div>
                 <div className="flex justify-between items-center md:hidden mt-1">
                   <div className="text-xs text-zinc-500">{txn.date} &bull; {t(txn.type)}</div>
-                  <div className={`text-xs font-medium px-2 py-1 rounded-full ${txn.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : txn.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{t(txn.status.toLowerCase())}</div>
+                  <div className={`text-xs font-medium px-2 py-1 rounded-full ${txn.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : txn.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{t(txn.status.toLowerCase())}</div>
                 </div>
                 
                 <div className="hidden md:block font-mono text-sm">{txn.id}</div>
@@ -172,7 +229,7 @@ export default function Transactions({ lang }: { lang: 'EN' | 'AR' }) {
                 <div className="hidden md:block font-mono text-sm">{txn.amount.toLocaleString()}</div>
                 <div className="hidden md:block font-mono text-sm">{getCurrencyLabel(txn.currency)}</div>
                 <div className="hidden md:block capitalize text-sm">{t(txn.type)}</div>
-                <div className={`hidden md:block text-sm font-medium ${txn.status === 'Completed' ? 'text-emerald-600' : txn.status === 'Pending' ? 'text-amber-600' : 'text-red-600'}`}>{t(txn.status.toLowerCase())}</div>
+                <div className={`hidden md:block text-sm font-medium ${txn.status === 'completed' ? 'text-emerald-600' : txn.status === 'pending' ? 'text-amber-600' : 'text-red-600'}`}>{t(txn.status.toLowerCase())}</div>
                 <div className="hidden md:block text-sm truncate">{txn.paymentMethod}</div>
                 <div className="hidden md:block font-mono text-sm">{txn.date}</div>
                 <div className="hidden md:block font-mono text-sm">{txn.timestamp}</div>
@@ -210,7 +267,7 @@ export default function Transactions({ lang }: { lang: 'EN' | 'AR' }) {
                 <div><p className="text-zinc-500 mb-1">{t('amount')}</p><p className="font-mono">{selectedTransaction.amount.toLocaleString()} {getCurrencyLabel(selectedTransaction.currency)}</p></div>
                 <div><p className="text-zinc-500 mb-1">{t('paymentMethod')}</p><p>{selectedTransaction.paymentMethod}</p></div>
                 <div><p className="text-zinc-500 mb-1">{t('type')}</p><p className="capitalize">{t(selectedTransaction.type)}</p></div>
-                <div><p className="text-zinc-500 mb-1">{t('status')}</p><p className={`font-medium ${selectedTransaction.status === 'Completed' ? 'text-emerald-600' : 'text-amber-600'}`}>{t(selectedTransaction.status.toLowerCase())}</p></div>
+                <div><p className="text-zinc-500 mb-1">{t('status')}</p><p className={`font-medium ${selectedTransaction.status === 'completed' ? 'text-emerald-600' : 'text-amber-600'}`}>{t(selectedTransaction.status.toLowerCase())}</p></div>
                 <div><p className="text-zinc-500 mb-1">{t('date')}</p><p className="font-mono">{selectedTransaction.date} {selectedTransaction.timestamp}</p></div>
                 <div className="sm:col-span-2"><p className="text-zinc-500 mb-1">{t('notes')}</p><p>{selectedTransaction.notes || 'N/A'}</p></div>
               </div>
