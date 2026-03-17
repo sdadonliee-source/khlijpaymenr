@@ -1,0 +1,173 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { Nfc, AlertCircle, CheckCircle2, Info, CreditCard } from 'lucide-react';
+
+interface NfcPaymentProps {
+  user: any;
+  storeId: string;
+  amount: number;
+  currency: string;
+}
+
+export default function NfcPayment({ user, storeId, amount, currency }: NfcPaymentProps) {
+  const [status, setStatus] = useState<'idle' | 'scanning' | 'processing' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+  const [nfcSupported, setNfcSupported] = useState(true);
+
+  useEffect(() => {
+    if (!('NDEFReader' in window)) {
+      setNfcSupported(false);
+    }
+  }, []);
+
+  const startNfcScan = async () => {
+    if (!nfcSupported) {
+      setStatus('error');
+      setMessage('Web NFC is not supported on this browser. Please use Chrome on Android.');
+      return;
+    }
+
+    try {
+      const ndef = new (window as any).NDEFReader();
+      await ndef.scan();
+      setStatus('scanning');
+      setMessage('Ready to scan. Please bring the NFC tag close to your device.');
+
+      ndef.onreading = async (event: any) => {
+        const { message: nfcMessage, serialNumber } = event;
+        setStatus('processing');
+        
+        let nfcData = serialNumber;
+        
+        // Try to read NDEF records
+        if (nfcMessage.records && nfcMessage.records.length > 0) {
+          for (const record of nfcMessage.records) {
+            if (record.recordType === "url" || record.recordType === "text") {
+              const decoder = new TextDecoder();
+              nfcData = decoder.decode(record.data);
+              break;
+            }
+          }
+        }
+
+        setMessage(`Detected: ${nfcData.substring(0, 30)}...`);
+
+        try {
+          const response = await axios.post('/api/bitcart/invoice', {
+            userId: user?.uid,
+            storeId,
+            amount,
+            currency,
+            nfcData
+          });
+
+          setStatus('success');
+          setMessage(`Payment successful! Invoice: ${response.data.id}`);
+          
+          if (response.data.payment_url) {
+            window.open(response.data.payment_url, '_blank');
+          }
+        } catch (error) {
+          setStatus('error');
+          setMessage('Payment failed. Please check your Bitcart configuration.');
+        }
+      };
+
+      ndef.onreadingerror = () => {
+        setStatus('error');
+        setMessage('Cannot read data from the NFC tag. Try another one.');
+      };
+
+    } catch (error) {
+      setStatus('error');
+      setMessage('Permission denied or NFC hardware is disabled.');
+    }
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-200 max-w-2xl mx-auto">
+      <div className="flex items-center gap-4 mb-8">
+        <div className="w-12 h-12 bg-zinc-900 rounded-xl flex items-center justify-center text-white">
+          <Nfc className="w-6 h-6" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold text-zinc-900">Contactless Payment</h2>
+          <p className="text-zinc-500 text-sm">Pay using NFC tags, Bolt cards, or crypto wallets</p>
+        </div>
+      </div>
+
+      {!nfcSupported && (
+        <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl flex gap-3 mb-6">
+          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+          <p className="text-sm text-amber-800">
+            <strong>Browser Not Supported:</strong> Web NFC is currently only supported in Chrome for Android. 
+            iOS and Desktop browsers do not support this feature yet.
+          </p>
+        </div>
+      )}
+
+      <div className="relative group mb-8">
+        <div className={`aspect-square rounded-3xl border-4 border-dashed transition-all flex flex-col items-center justify-center gap-4 ${
+          status === 'scanning' ? 'border-zinc-900 bg-zinc-50 animate-pulse' : 
+          status === 'success' ? 'border-emerald-500 bg-emerald-50' :
+          status === 'error' ? 'border-red-500 bg-red-50' : 'border-zinc-100'
+        }`}>
+          {status === 'idle' && <CreditCard className="w-16 h-16 text-zinc-200" />}
+          {status === 'scanning' && <Nfc className="w-16 h-16 text-zinc-900" />}
+          {status === 'success' && <CheckCircle2 className="w-16 h-16 text-emerald-500" />}
+          {status === 'error' && <AlertCircle className="w-16 h-16 text-red-500" />}
+          
+          <p className="text-center px-6 font-medium text-zinc-600">
+            {message || 'Tap the button below to start'}
+          </p>
+        </div>
+      </div>
+
+      <button
+        onClick={startNfcScan}
+        disabled={!nfcSupported || status === 'scanning' || status === 'processing'}
+        className="w-full py-4 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+      >
+        <Nfc className="w-5 h-5" />
+        {status === 'scanning' ? 'Scanning...' : 'Start Contactless Payment'}
+      </button>
+
+      <div className="mt-10 pt-8 border-t border-zinc-100">
+        <h4 className="flex items-center gap-2 text-sm font-bold text-zinc-900 mb-4">
+          <Info className="w-4 h-4" />
+          Supported Contactless Methods
+        </h4>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <li className="flex gap-3 p-3 bg-zinc-50 rounded-lg">
+            <div className="w-2 h-2 bg-zinc-900 rounded-full mt-1.5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-zinc-900">Bolt Cards</p>
+              <p className="text-[10px] text-zinc-500">Lightning Network NFC cards</p>
+            </div>
+          </li>
+          <li className="flex gap-3 p-3 bg-zinc-50 rounded-lg">
+            <div className="w-2 h-2 bg-zinc-900 rounded-full mt-1.5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-zinc-900">LNURL-Pay</p>
+              <p className="text-[10px] text-zinc-500">Static payment QR/NFC tags</p>
+            </div>
+          </li>
+          <li className="flex gap-3 p-3 bg-zinc-50 rounded-lg">
+            <div className="w-2 h-2 bg-zinc-900 rounded-full mt-1.5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-zinc-900">Crypto Wallets</p>
+              <p className="text-[10px] text-zinc-500">NFC-enabled hardware wallets</p>
+            </div>
+          </li>
+          <li className="flex gap-3 p-3 bg-zinc-50 rounded-lg">
+            <div className="w-2 h-2 bg-zinc-900 rounded-full mt-1.5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-zinc-900">Custom Tags</p>
+              <p className="text-[10px] text-zinc-500">Any NDEF-formatted NFC tag</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}

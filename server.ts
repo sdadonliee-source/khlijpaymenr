@@ -3,14 +3,24 @@ import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import crypto from 'crypto';
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, collection, addDoc } from 'firebase/firestore';
+import axios from 'axios';
+import admin from 'firebase-admin';
 
-// Initialize Firebase in backend
+// Import the Firebase configuration
 import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
 
-const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: firebaseConfig.projectId,
+  });
+}
+const adminDb = admin.firestore();
+if (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)') {
+  // Note: In some versions of firebase-admin, you might need a different way to specify the database ID
+  // but usually projectId is enough if it's the default database.
+  // If it's a named database, we might need to use the full database path or a specific client.
+}
 
 async function startServer() {
   const app = express();
@@ -24,95 +34,150 @@ async function startServer() {
     res.json({ status: 'ok' });
   });
 
-  // Mock Fiat Checkout API
-  app.post('/api/fiat/checkout', async (req, res) => {
+  // Bitcart Generic Proxy (Real Integration)
+  app.all('/api/bitcart/proxy/*', async (req, res) => {
     try {
-      const { userId, amount, currency, method } = req.body;
+      const { userId } = req.query;
+      if (!userId) return res.status(400).json({ error: 'Missing userId' });
+
+      // Fetch developer settings for Bitcart config
+      const docRef = adminDb.collection('developerSettings').doc(userId as string);
+      const docSnap = await docRef.get();
+      
+      let bitcartUrl = 'https://bitcart.yourdomain.com';
+      let bitcartApiKey = 'Admin API Key';
+
+      if (docSnap.exists) {
+        const data = docSnap.data()!;
+        if (data.bitcartUrl) bitcartUrl = data.bitcartUrl;
+        if (data.bitcartApiKey) bitcartApiKey = data.bitcartApiKey;
+      }
+      
+      if (!bitcartUrl || !bitcartApiKey) {
+        return res.status(400).json({ error: 'Bitcart not configured' });
+      }
+
+      const endpoint = (req.params as any)[0];
+      const method = req.method;
+      const url = `${bitcartUrl}/${endpoint}`;
+
+      const response = await axios({
+        method,
+        url,
+        data: req.body,
+        params: req.query,
+        headers: {
+          'Authorization': `Token ${bitcartApiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      res.json(response.data);
+    } catch (error: any) {
+      const status = error.response?.status || 500;
+      const data = error.response?.data || { error: error.message || 'Internal Server Error' };
+      console.error(`Bitcart Proxy Error (${status}):`, data);
+      res.status(status).json(data);
+    }
+  });
+
+  // Bitcart Invoice Creation (Real Integration)
+  app.post('/api/bitcart/invoice', async (req, res) => {
+    try {
+      const { userId, amount, currency, storeId } = req.body;
       
       if (!userId || !amount || !currency) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
-      // Create transaction in Firestore
-      const txData = {
-        id: `TXN-FIAT-${Math.floor(Math.random() * 1000000)}`,
-        merchant: 'Test Checkout',
-        amount: parseFloat(amount),
-        currency,
-        type: 'payment',
-        status: 'completed',
-        date: new Date().toISOString().split('T')[0],
-        timestamp: new Date().toTimeString().split(' ')[0].substring(0, 5),
-        notes: `Fiat Checkout Simulator (${method})`,
-        paymentMethod: method || 'Card',
-        userId,
-        createdAt: new Date().toISOString()
-      };
-
-      await addDoc(collection(db, 'transactions'), txData);
-
-      // Trigger webhook asynchronously
-      fetch(`http://localhost:${PORT}/api/webhooks/trigger`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          event: 'invoice.paid',
-          payload: txData
-        })
-      }).catch(err => console.error('Failed to trigger webhook internally:', err));
-
-      res.json({ success: true, transaction: txData });
-    } catch (error: any) {
-      console.error('Checkout Error:', error);
-      res.status(500).json({ error: error.message || 'Internal Server Error' });
-    }
-  });
-
-  // Mock Crypto Checkout API
-  app.post('/api/crypto/checkout', async (req, res) => {
-    try {
-      const { userId, amount, currency, method } = req.body;
+      // Fetch developer settings for Bitcart config
+      const docRef = adminDb.collection('developerSettings').doc(userId);
+      const docSnap = await docRef.get();
       
-      if (!userId || !amount || !currency) {
-        return res.status(400).json({ error: 'Missing required fields' });
+      let bitcartUrl = 'https://bitcart.yourdomain.com';
+      let bitcartApiKey = 'Admin API Key';
+
+      if (docSnap.exists) {
+        const data = docSnap.data()!;
+        if (data.bitcartUrl) bitcartUrl = data.bitcartUrl;
+        if (data.bitcartApiKey) bitcartApiKey = data.bitcartApiKey;
       }
 
-      // Create transaction in Firestore
-      const txData = {
-        id: `TXN-CRYPTO-${Math.floor(Math.random() * 1000000)}`,
-        merchant: 'Test Checkout',
-        amount: parseFloat(amount),
-        currency,
-        type: 'payment',
-        status: 'completed',
-        date: new Date().toISOString().split('T')[0],
-        timestamp: new Date().toTimeString().split(' ')[0].substring(0, 5),
-        notes: `Crypto Checkout Simulator (${method})`,
-        paymentMethod: method || 'USDT (TRC20)',
+      // Create invoice in Bitcart
+      const response = await axios.post(`${bitcartUrl}/invoices`, {
+        price: amount,
+        currency: currency,
+        store_id: storeId // Optional, depends on Bitcart setup
+      }, {
+        headers: {
+          'Authorization': `Token ${bitcartApiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const invoice = response.data;
+
+      // Create order in Firestore
+      await adminDb.collection('orders').add({
         userId,
+        amount,
+        currency,
+        status: 'pending',
+        bitcartInvoiceId: invoice.id,
         createdAt: new Date().toISOString()
-      };
+      });
 
-      await addDoc(collection(db, 'transactions'), txData);
-
-      // Trigger webhook asynchronously
-      fetch(`http://localhost:${PORT}/api/webhooks/trigger`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          event: 'invoice.paid',
-          payload: txData
-        })
-      }).catch(err => console.error('Failed to trigger webhook internally:', err));
-
-      res.json({ success: true, transaction: txData });
+      res.json(invoice);
     } catch (error: any) {
-      console.error('Checkout Error:', error);
-      res.status(500).json({ error: error.message || 'Internal Server Error' });
+      const status = error.response?.status || 500;
+      const data = error.response?.data || { error: error.message || 'Internal Server Error' };
+      console.error(`Bitcart Invoice Error (${status}):`, data);
+      res.status(status).json(data);
     }
   });
+
+  app.post('/api/webhook/bitcart', async (req, res) => {
+    try {
+      const { event, payload } = req.body;
+      
+      // In production, we should verify signature
+      // const signature = req.headers['x-bitcart-signature'];
+      
+      if (event === 'invoice.paid' || event === 'invoice.confirmed') {
+        const invoiceId = payload.id;
+        
+        // Find order by bitcartInvoiceId
+        const ordersRef = adminDb.collection('orders');
+        const querySnapshot = await ordersRef.where('bitcartInvoiceId', '==', invoiceId).get();
+        
+        if (!querySnapshot.empty) {
+          const orderDoc = querySnapshot.docs[0];
+          await orderDoc.ref.update({
+            status: 'paid',
+            paidAt: new Date().toISOString()
+          });
+          console.log('Order marked as paid:', orderDoc.id);
+        }
+      } else if (event === 'invoice.expired') {
+        const invoiceId = payload.id;
+        const ordersRef = adminDb.collection('orders');
+        const querySnapshot = await ordersRef.where('bitcartInvoiceId', '==', invoiceId).get();
+        
+        if (!querySnapshot.empty) {
+          const orderDoc = querySnapshot.docs[0];
+          await orderDoc.ref.update({
+            status: 'expired'
+          });
+        }
+      }
+      
+      res.status(200).send('OK');
+    } catch (error: any) {
+      console.error('Bitcart Webhook Error:', error);
+      res.status(500).send('Internal Server Error');
+    }
+  });
+
 
   // Real Webhook Dispatcher
   app.post('/api/webhooks/trigger', async (req, res) => {
@@ -124,14 +189,14 @@ async function startServer() {
       }
 
       // Fetch developer settings from Firestore
-      const docRef = doc(db, 'developerSettings', userId);
-      const docSnap = await getDoc(docRef);
+      const docRef = adminDb.collection('developerSettings').doc(userId);
+      const docSnap = await docRef.get();
 
-      if (!docSnap.exists()) {
+      if (!docSnap.exists) {
         return res.status(404).json({ error: 'Developer settings not found' });
       }
 
-      const settings = docSnap.data();
+      const settings = docSnap.data()!;
       const { webhookUrl, webhookSecret } = settings;
 
       if (!webhookUrl) {

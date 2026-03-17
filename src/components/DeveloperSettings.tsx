@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Link2, Code, Copy, CheckCircle2, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Key, Link2, Code, Copy, CheckCircle2, Plus, Trash2, Eye, EyeOff, CreditCard } from 'lucide-react';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -14,7 +14,9 @@ export default function DeveloperSettings({ lang, user }: { lang: 'EN' | 'AR', u
   const [settings, setSettings] = useState<any>({
     apiKey: 'pk_live_8f92j3n4m5k6l7o8p9q0',
     webhookSecret: 'whsec_1a2b3c4d5e6f7g8h9i0j',
-    webhookUrl: 'https://api.merchant.com/webhooks/khalijpay'
+    webhookUrl: 'https://api.merchant.com/webhooks/khalijpay',
+    bitcartUrl: '',
+    bitcartApiKey: ''
   });
 
   useEffect(() => {
@@ -75,8 +77,10 @@ export default function DeveloperSettings({ lang, user }: { lang: 'EN' | 'AR', u
         endpointUrl: 'Endpoint URL',
         addWebhook: 'Save Webhook',
         events: 'Events to send',
-        active: 'Active',
-        copied: 'Copied!'
+        bitcart: 'Bitcart Integration',
+        bitcartUrl: 'Bitcart URL',
+        bitcartApiKey: 'Bitcart API Key',
+        saveBitcart: 'Save Bitcart Settings',
       },
       AR: { 
         title: 'إعدادات المطورين',
@@ -91,7 +95,11 @@ export default function DeveloperSettings({ lang, user }: { lang: 'EN' | 'AR', u
         addWebhook: 'حفظ الويب هوك',
         events: 'الأحداث المرسلة',
         active: 'نشط',
-        copied: 'تم النسخ!'
+        copied: 'تم النسخ!',
+        bitcart: 'ربط Bitcart',
+        bitcartUrl: 'رابط Bitcart',
+        bitcartApiKey: 'مفتاح API لـ Bitcart',
+        saveBitcart: 'حفظ إعدادات Bitcart',
       }
     };
     return translations[lang][key];
@@ -165,7 +173,7 @@ export default function DeveloperSettings({ lang, user }: { lang: 'EN' | 'AR', u
                 <input 
                   type="url" 
                   className="flex-1 p-2.5 border border-zinc-300 rounded-lg text-sm" 
-                  value={settings.webhookUrl} 
+                  value={settings.webhookUrl || ''} 
                   onChange={(e) => setSettings({ ...settings, webhookUrl: e.target.value })}
                   placeholder="https://api.merchant.com/webhooks"
                 />
@@ -180,6 +188,46 @@ export default function DeveloperSettings({ lang, user }: { lang: 'EN' | 'AR', u
             <div className="pt-3 border-t border-zinc-200">
               <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-1">{t('events')}</p>
               <p className="text-sm text-zinc-700">invoice.paid, invoice.expired, transaction.confirmed</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Bitcart Integration */}
+        <div className="mt-8 lg:col-span-2">
+          <h3 className="text-lg font-bold text-zinc-800 flex items-center gap-2 mb-4">
+            <Code className="w-5 h-5 text-emerald-500" /> {t('bitcart')}
+          </h3>
+          <div className="bg-zinc-50 p-6 rounded-xl border border-zinc-200 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-semibold text-zinc-600">{t('bitcartUrl')}</label>
+              <input 
+                type="text" 
+                className="p-2.5 border border-zinc-300 rounded-lg text-sm" 
+                value={settings.bitcartUrl || ''} 
+                onChange={(e) => setSettings({ ...settings, bitcartUrl: e.target.value })}
+                placeholder="https://bitcart.yourdomain.com"
+              />
+            </div>
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-semibold text-zinc-600">{t('bitcartApiKey')}</label>
+              <input 
+                type="password" 
+                className="p-2.5 border border-zinc-300 rounded-lg text-sm" 
+                value={settings.bitcartApiKey || ''} 
+                onChange={(e) => setSettings({ ...settings, bitcartApiKey: e.target.value })}
+                placeholder="Admin API Key"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <button 
+                onClick={async () => {
+                  const docRef = doc(db, 'developerSettings', user.uid);
+                  await updateDoc(docRef, { bitcartUrl: settings.bitcartUrl, bitcartApiKey: settings.bitcartApiKey });
+                }}
+                className="w-full md:w-auto px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition-colors"
+              >
+                {t('saveBitcart')}
+              </button>
             </div>
           </div>
         </div>

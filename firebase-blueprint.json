@@ -41,9 +41,76 @@
         "apiKey": { "type": "string" },
         "webhookSecret": { "type": "string" },
         "webhookUrl": { "type": "string" },
+        "stripePublishableKey": { "type": "string" },
+        "stripeSecretKey": { "type": "string" },
+        "bitcartUrl": { "type": "string" },
+        "bitcartApiKey": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "apiKey", "webhookSecret", "updatedAt"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Merchant store configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "bitcartUrl": { "type": "string" },
+        "bitcartApiKey": { "type": "string" }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "storeId": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "paid", "expired"] },
+        "bitcartInvoiceId": { "type": "string" },
+        "nfcDeviceId": { "type": "string" }
+      },
+      "required": ["id", "storeId", "amount", "currency", "status"]
+    },
+    "NfcDevice": {
+      "title": "NfcDevice",
+      "description": "NFC device registration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "deviceId": { "type": "string" },
+        "storeId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["id", "deviceId", "storeId", "status"]
+    },
+    "ShariaCompliance": {
+      "title": "Sharia Compliance",
+      "description": "Sharia compliance checklist for a merchant",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "checklist": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "number" },
+              "en": { "type": "string" },
+              "ar": { "type": "string" },
+              "compliant": { "type": "boolean" }
+            }
+          }
+        },
+        "reviewDate": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "checklist", "updatedAt"]
     }
   },
   "firestore": {
@@ -58,6 +125,22 @@
     "developerSettings/{userId}": {
       "schema": { "$ref": "#/entities/DeveloperSettings" },
       "description": "Developer settings for merchants"
+    },
+    "stores/{storeId}": {
+      "schema": { "$ref": "#/entities/Store" },
+      "description": "Merchant stores"
+    },
+    "orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Customer orders"
+    },
+    "nfc_devices/{deviceId}": {
+      "schema": { "$ref": "#/entities/NfcDevice" },
+      "description": "Registered NFC devices"
+    },
+    "shariaCompliance/{userId}": {
+      "schema": { "$ref": "#/entities/ShariaCompliance" },
+      "description": "Sharia compliance status for merchants"
     }
   }
 }

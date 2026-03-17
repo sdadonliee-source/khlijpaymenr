@@ -9,11 +9,14 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { handleFirestoreError, OperationType } from './utils/firestoreErrorHandler';
 import Transactions from './components/Transactions';
 import ShariaCompliance from './components/ShariaCompliance';
 import CurrencyConverter from './components/CurrencyConverter';
 import PaymentGateway from './components/PaymentGateway';
-import CryptoGateway from './components/CryptoGateway';
+import NfcPayment from './components/NfcPayment';
+import Orders from './components/Orders';
+import BitcartHub from './components/BitcartHub';
 import DeveloperSettings from './components/DeveloperSettings';
 import { LANGUAGES } from './constants';
 
@@ -21,6 +24,7 @@ export default function App() {
   const [view, setView] = useState('dashboard');
   const [lang, setLang] = useState<'EN' | 'AR'>('EN');
   const [user, setUser] = useState<any>(null);
+  const [storeId, setStoreId] = useState<string>('default-store'); // Simplified for now
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [dashboardData, setDashboardData] = useState({
     totalVolume: 'Loading...',
@@ -115,6 +119,8 @@ export default function App() {
           activeTransactions: active.toString(),
           complianceStatus: 'Compliant'
         });
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'transactions');
       });
       return () => unsubscribe();
     }
@@ -128,7 +134,9 @@ export default function App() {
         compliance: 'Compliance',
         shariaCompliance: 'Sharia Compliance',
         gateway: 'Payment Gateway',
-        cryptoGateway: 'Crypto Gateway',
+        cryptoGateway: 'Crypto Hub',
+        nfcPayment: 'NFC Payment',
+        orders: 'Orders',
         developers: 'Developers',
         welcome: 'Welcome to your unified gateway',
         totalVolume: 'Total Volume (GCC)',
@@ -146,7 +154,9 @@ export default function App() {
         compliance: 'الامتثال',
         shariaCompliance: 'الامتثال الشرعي',
         gateway: 'بوابة الدفع',
-        cryptoGateway: 'بوابة الكريبتو',
+        cryptoGateway: 'مركز الكريبتو',
+        nfcPayment: 'الدفع عبر NFC',
+        orders: 'الطلبات',
         developers: 'المطورين',
         welcome: 'مرحباً بك في بوابتك الموحدة',
         totalVolume: 'إجمالي الحجم (الخليج)',
@@ -209,6 +219,8 @@ export default function App() {
           <button className={`whitespace-nowrap text-left px-4 py-2 rounded-lg transition-colors ${view === 'transactions' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`} onClick={() => setView('transactions')}>{t('transactions')}</button>
           <button className={`whitespace-nowrap text-left px-4 py-2 rounded-lg transition-colors ${view === 'gateway' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`} onClick={() => setView('gateway')}>{t('gateway')}</button>
           <button className={`whitespace-nowrap text-left px-4 py-2 rounded-lg transition-colors ${view === 'crypto' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`} onClick={() => setView('crypto')}>{t('cryptoGateway')}</button>
+          <button className={`whitespace-nowrap text-left px-4 py-2 rounded-lg transition-colors ${view === 'nfc' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`} onClick={() => setView('nfc')}>{t('nfcPayment')}</button>
+          <button className={`whitespace-nowrap text-left px-4 py-2 rounded-lg transition-colors ${view === 'orders' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`} onClick={() => setView('orders')}>{t('orders')}</button>
           <button className={`whitespace-nowrap text-left px-4 py-2 rounded-lg transition-colors ${view === 'compliance' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`} onClick={() => setView('compliance')}>{t('shariaCompliance')}</button>
           <button className={`whitespace-nowrap text-left px-4 py-2 rounded-lg transition-colors ${view === 'developers' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`} onClick={() => setView('developers')}>{t('developers')}</button>
         </nav>
@@ -252,6 +264,43 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Merchant Profile & Quick Actions */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                  <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-zinc-200">
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="w-12 h-12 bg-zinc-100 rounded-full flex items-center justify-center text-zinc-900 font-bold text-xl">
+                        {user.email?.[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-zinc-900">{user.email}</h3>
+                        <p className="text-sm text-zinc-500">Merchant ID: <span className="font-mono">{user.uid.substring(0, 8)}...</span></p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-100">
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Account Status</p>
+                        <p className="text-sm font-bold text-emerald-600 flex items-center gap-1">
+                          <span className="w-2 h-2 bg-emerald-500 rounded-full"></span> Active
+                        </p>
+                      </div>
+                      <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-100">
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Region</p>
+                        <p className="text-sm font-bold text-zinc-900">GCC / Middle East</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-zinc-900 p-6 rounded-2xl shadow-lg text-white flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold mb-2">Quick Actions</h3>
+                      <p className="text-zinc-400 text-sm mb-6">Manage your gateway operations instantly.</p>
+                    </div>
+                    <div className="space-y-3">
+                      <button onClick={() => setView('gateway')} className="w-full py-2.5 bg-white text-zinc-900 rounded-lg font-bold text-sm hover:bg-zinc-100 transition-colors">New Payment</button>
+                      <button onClick={() => setView('developers')} className="w-full py-2.5 bg-zinc-800 text-white rounded-lg font-bold text-sm hover:bg-zinc-700 transition-colors border border-zinc-700">API Keys</button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Chart Section */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 mb-8">
                   <h3 className="text-lg font-bold mb-6 text-zinc-800">{t('weeklyVolume')}</h3>
@@ -278,11 +327,18 @@ export default function App() {
                 </div>
 
                 <CurrencyConverter lang={lang} />
+
+                {/* Recent Orders Section */}
+                <div className="mt-8">
+                  <Orders lang={lang} user={user} />
+                </div>
               </>
             )}
             {view === 'transactions' && <Transactions lang={lang} user={user} />}
             {view === 'gateway' && <PaymentGateway lang={lang} user={user} />}
-            {view === 'crypto' && <CryptoGateway lang={lang} user={user} />}
+            {view === 'crypto' && <BitcartHub lang={lang} user={user} />}
+            {view === 'nfc' && <NfcPayment user={user} storeId={storeId} amount={100} currency="BTC" />}
+            {view === 'orders' && <Orders lang={lang} user={user} />}
             {view === 'compliance' && <ShariaCompliance lang={lang} user={user} />}
             {view === 'developers' && <DeveloperSettings lang={lang} user={user} />}
           </motion.div>
