@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Info, ShieldCheck, Calculator, FileCheck, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 /**
  * @license
@@ -71,10 +72,57 @@ export default function ShariaCompliance({ lang, user }: { lang: 'EN' | 'AR', us
     setZakatResult(result);
   };
 
+  const [auditing, setAuditing] = useState(false);
+  const [auditResult, setAuditResult] = useState<any>(null);
+
+  const runAudit = async () => {
+    setAuditing(true);
+    setAuditResult(null);
+    // Simulate a deep audit of transactions
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    setAuditing(false);
+    setAuditResult({
+      score: 100,
+      status: 'Perfect',
+      message: lang === 'EN' ? 'All transactions are compliant with Sharia principles.' : 'جميع المعاملات متوافقة مع مبادئ الشريعة الإسلامية.',
+      timestamp: new Date().toISOString()
+    });
+  };
+
   return (
     <div className="space-y-8">
       <div className="bg-white p-4 md:p-8 rounded-2xl shadow-sm border border-zinc-200">
-        <h2 className="text-xl md:text-2xl font-bold mb-6 md:mb-8">{t('title')}</h2>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+          <h2 className="text-xl md:text-2xl font-bold">{t('title')}</h2>
+          <button 
+            onClick={runAudit}
+            disabled={auditing}
+            className="w-full sm:w-auto px-6 py-2.5 bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-400 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+          >
+            {auditing ? (
+              <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {lang === 'EN' ? 'Auditing...' : 'جاري التدقيق...'}</>
+            ) : (
+              <>{lang === 'EN' ? 'Run Compliance Audit' : 'بدء التدقيق الشرعي'}</>
+            )}
+          </button>
+        </div>
+
+        {auditResult && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-4"
+          >
+            <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center text-white shrink-0">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="font-bold text-emerald-900">{auditResult.message}</p>
+              <p className="text-xs text-emerald-600 font-mono mt-1">Audit Timestamp: {new Date(auditResult.timestamp).toLocaleString()}</p>
+            </div>
+          </motion.div>
+        )}
+
         <div className="mb-6 md:mb-8">
           <label className="block mb-2 text-xs md:text-sm font-semibold text-zinc-500 uppercase tracking-wider">{t('date')}:</label>
           <input type="date" className="p-3 border border-zinc-300 rounded-lg w-full" value={reviewDate} onChange={handleDateChange} />

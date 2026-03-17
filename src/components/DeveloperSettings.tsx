@@ -185,50 +185,51 @@ export default function DeveloperSettings({ lang, user }: { lang: 'EN' | 'AR', u
                 </button>
               </div>
             </div>
-            <div className="pt-3 border-t border-zinc-200">
-              <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-1">{t('events')}</p>
-              <p className="text-sm text-zinc-700">invoice.paid, invoice.expired, transaction.confirmed</p>
+            <div className="pt-3 border-t border-zinc-200 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-1">{t('events')}</p>
+                <p className="text-sm text-zinc-700">invoice.paid, invoice.expired, transaction.confirmed</p>
+              </div>
+              <button 
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/webhooks/trigger', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        userId: user.uid,
+                        event: 'test.ping',
+                        payload: { message: 'Test webhook from KhalijPay', timestamp: new Date().toISOString() }
+                      })
+                    });
+                    if (res.ok) alert('Test webhook sent successfully!');
+                    else alert('Failed to send test webhook. Check your URL.');
+                  } catch (e) {
+                    alert('Error sending test webhook.');
+                  }
+                }}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Test Webhook
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Bitcart Integration */}
+        {/* Bitcart Integration (Internal) */}
         <div className="mt-8 lg:col-span-2">
           <h3 className="text-lg font-bold text-zinc-800 flex items-center gap-2 mb-4">
             <Code className="w-5 h-5 text-emerald-500" /> {t('bitcart')}
           </h3>
-          <div className="bg-zinc-50 p-6 rounded-xl border border-zinc-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-3">
-              <label className="text-sm font-semibold text-zinc-600">{t('bitcartUrl')}</label>
-              <input 
-                type="text" 
-                className="p-2.5 border border-zinc-300 rounded-lg text-sm" 
-                value={settings.bitcartUrl || ''} 
-                onChange={(e) => setSettings({ ...settings, bitcartUrl: e.target.value })}
-                placeholder="https://bitcart.yourdomain.com"
-              />
+          <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100">
+            <div className="flex items-center gap-3 mb-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <p className="font-bold text-emerald-900">Internal Bitcart Engine Active</p>
             </div>
-            <div className="flex flex-col gap-3">
-              <label className="text-sm font-semibold text-zinc-600">{t('bitcartApiKey')}</label>
-              <input 
-                type="password" 
-                className="p-2.5 border border-zinc-300 rounded-lg text-sm" 
-                value={settings.bitcartApiKey || ''} 
-                onChange={(e) => setSettings({ ...settings, bitcartApiKey: e.target.value })}
-                placeholder="Admin API Key"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <button 
-                onClick={async () => {
-                  const docRef = doc(db, 'developerSettings', user.uid);
-                  await updateDoc(docRef, { bitcartUrl: settings.bitcartUrl, bitcartApiKey: settings.bitcartApiKey });
-                }}
-                className="w-full md:w-auto px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition-colors"
-              >
-                {t('saveBitcart')}
-              </button>
-            </div>
+            <p className="text-sm text-emerald-700">
+              The Bitcart payment processing engine is now fully integrated into your application. 
+              No external API or configuration is required. All stores, wallets, and invoices are managed locally.
+            </p>
           </div>
         </div>
       </div>

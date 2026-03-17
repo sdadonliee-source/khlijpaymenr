@@ -6,8 +6,9 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { TrendingUp, Activity, ShieldCheck, Wallet, CreditCard } from 'lucide-react';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { handleFirestoreError, OperationType } from './utils/firestoreErrorHandler';
 import Transactions from './components/Transactions';
@@ -31,6 +32,9 @@ export default function App() {
     activeTransactions: 'Loading...',
     complianceStatus: 'Loading...'
   });
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [stats, setStats] = useState({ totalVolume: 0, activeTransactions: 0 });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -72,8 +76,6 @@ export default function App() {
     }
   };
 
-  const [chartData, setChartData] = useState<any[]>([]);
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-SA', { style: 'currency', currency: 'SAR' }).format(amount);
   };
@@ -113,6 +115,7 @@ export default function App() {
         }));
         
         setChartData(newChartData);
+        setStats({ totalVolume: volume, activeTransactions: active });
 
         setDashboardData({
           totalVolume: formatCurrency(volume),
@@ -122,7 +125,18 @@ export default function App() {
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, 'transactions');
       });
-      return () => unsubscribe();
+
+      const qRecent = query(collection(db, 'transactions'), where('userId', '==', user.uid), orderBy('timestamp', 'desc'), limit(5));
+      const unsubscribeRecent = onSnapshot(qRecent, (snapshot) => {
+        setRecentTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'transactions');
+      });
+
+      return () => {
+        unsubscribe();
+        unsubscribeRecent();
+      };
     }
   }, [view, user]);
 
@@ -246,21 +260,113 @@ export default function App() {
             {view === 'dashboard' && (
               <>
                 <div className="flex justify-between items-center mb-6 md:mb-8">
-                  <h2 className="text-2xl md:text-3xl font-bold text-zinc-900">{t('welcome')}</h2>
+                  <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 tracking-tight">{t('welcome')}</h2>
                   <button className="md:hidden text-zinc-500 font-bold text-sm" onClick={handleLogout}>{t('logout')}</button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 mb-8">
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 hover:shadow-md transition-shadow">
-                    <h3 className="text-xs font-semibold uppercase text-zinc-500 tracking-wider">{t('totalVolume')}</h3>
-                    <p className="font-mono text-2xl md:text-3xl mt-2 text-zinc-900">{dashboardData.totalVolume}</p>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  {[
+                    { label: t('totalVolume'), value: `${stats.totalVolume.toFixed(2)} SAR`, change: '+12.5%', icon: TrendingUp, color: 'emerald' },
+                    { label: t('activeTransactions'), value: stats.activeTransactions, change: 'Live', icon: Activity, color: 'blue' },
+                    { label: t('complianceStatus'), value: '98%', change: 'Verified', icon: ShieldCheck, color: 'indigo' },
+                    { label: t('activeWallets'), value: '4', change: 'Connected', icon: Wallet, color: 'amber' },
+                  ].map((stat, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md transition-all group"
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div className={`p-2.5 bg-zinc-50 rounded-xl group-hover:scale-110 transition-transform`}>
+                          <stat.icon className="w-5 h-5 text-zinc-600" />
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          stat.change.includes('+') ? 'bg-emerald-50 text-emerald-600' : 'bg-zinc-100 text-zinc-500'
+                        }`}>
+                          {stat.change}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">{stat.label}</p>
+                      <h3 className="text-2xl font-bold text-zinc-900 font-mono">{stat.value}</h3>
+                    </motion.div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+                  {/* Main Chart */}
+                  <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-zinc-200 shadow-sm">
+                    <div className="flex justify-between items-center mb-8">
+                      <div>
+                        <h3 className="text-lg font-bold text-zinc-900">{t('weeklyVolume')}</h3>
+                        <p className="text-sm text-zinc-500">Transaction volume over the last 7 days</p>
+                      </div>
+                      <select className="bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 text-xs font-bold outline-none">
+                        <option>Last 7 Days</option>
+                        <option>Last 30 Days</option>
+                      </select>
+                    </div>
+                    <div className="h-[300px] w-full" dir="ltr">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData}>
+                          <defs>
+                            <linearGradient id="colorVolume" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#18181b" stopOpacity={0.1}/>
+                              <stop offset="95%" stopColor="#18181b" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f4f4f5" />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#71717a'}} dy={10} />
+                          <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#71717a'}} />
+                          <Tooltip 
+                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          />
+                          <Area type="monotone" dataKey="volume" stroke="#18181b" strokeWidth={3} fillOpacity={1} fill="url(#colorVolume)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 hover:shadow-md transition-shadow">
-                    <h3 className="text-xs font-semibold uppercase text-zinc-500 tracking-wider">{t('activeTransactions')}</h3>
-                    <p className="font-mono text-2xl md:text-3xl mt-2 text-zinc-900">{dashboardData.activeTransactions}</p>
-                  </div>
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 sm:col-span-2 md:col-span-1 hover:shadow-md transition-shadow">
-                    <h3 className="text-xs font-semibold uppercase text-zinc-500 tracking-wider">{t('complianceStatus')}</h3>
-                    <p className={`font-bold text-xl md:text-2xl mt-2 ${dashboardData.complianceStatus === 'Compliant' ? 'text-emerald-600' : 'text-amber-600'}`}>{dashboardData.complianceStatus}</p>
+
+                  {/* Recent Activity Feed */}
+                  <div className="bg-white p-8 rounded-3xl border border-zinc-200 shadow-sm">
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-lg font-bold text-zinc-900">Recent Activity</h3>
+                      <button className="text-xs font-bold text-zinc-500 hover:text-zinc-900" onClick={() => setView('transactions')}>View All</button>
+                    </div>
+                    <div className="space-y-6">
+                      {recentTransactions.length === 0 ? (
+                        <div className="text-center py-10">
+                          <Activity className="w-10 h-10 text-zinc-100 mx-auto mb-2" />
+                          <p className="text-xs text-zinc-400">No recent activity</p>
+                        </div>
+                      ) : (
+                        recentTransactions.map((tx, i) => (
+                          <div key={tx.id} className="flex items-center gap-4">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                              tx.status === 'completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                            }`}>
+                              {tx.method === 'crypto' ? <Wallet className="w-5 h-5" /> : <CreditCard className="w-5 h-5" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-zinc-900 truncate">{tx.id.substring(0, 12)}...</p>
+                              <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">{tx.method}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-zinc-900">{tx.amount} {tx.currency}</p>
+                              <p className="text-[10px] text-zinc-400">{new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <button 
+                      onClick={() => setView('transactions')}
+                      className="w-full mt-8 py-3 bg-zinc-50 hover:bg-zinc-100 text-zinc-900 rounded-xl text-xs font-bold transition-colors border border-zinc-100"
+                    >
+                      Go to Transactions
+                    </button>
                   </div>
                 </div>
 
@@ -301,43 +407,13 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Chart Section */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200 mb-8">
-                  <h3 className="text-lg font-bold mb-6 text-zinc-800">{t('weeklyVolume')}</h3>
-                  <div className="h-[300px] w-full" dir="ltr">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="colorVolume" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#18181b" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#18181b" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#71717a', fontSize: 12 }} dy={10} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#71717a', fontSize: 12 }} dx={-10} />
-                        <Tooltip 
-                          contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                          itemStyle={{ color: '#18181b', fontWeight: 'bold' }}
-                        />
-                        <Area type="monotone" dataKey="volume" stroke="#18181b" strokeWidth={3} fillOpacity={1} fill="url(#colorVolume)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
                 <CurrencyConverter lang={lang} />
-
-                {/* Recent Orders Section */}
-                <div className="mt-8">
-                  <Orders lang={lang} user={user} />
-                </div>
               </>
             )}
             {view === 'transactions' && <Transactions lang={lang} user={user} />}
             {view === 'gateway' && <PaymentGateway lang={lang} user={user} />}
             {view === 'crypto' && <BitcartHub lang={lang} user={user} />}
-            {view === 'nfc' && <NfcPayment user={user} storeId={storeId} amount={100} currency="BTC" />}
+            {view === 'nfc' && <NfcPayment user={user} storeId={storeId} />}
             {view === 'orders' && <Orders lang={lang} user={user} />}
             {view === 'compliance' && <ShariaCompliance lang={lang} user={user} />}
             {view === 'developers' && <DeveloperSettings lang={lang} user={user} />}

@@ -5,25 +5,83 @@ import { Nfc, AlertCircle, CheckCircle2, Info, CreditCard } from 'lucide-react';
 interface NfcPaymentProps {
   user: any;
   storeId: string;
-  amount: number;
-  currency: string;
 }
 
-export default function NfcPayment({ user, storeId, amount, currency }: NfcPaymentProps) {
+export default function NfcPayment({ user, storeId }: NfcPaymentProps) {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'processing' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [nfcSupported, setNfcSupported] = useState(true);
+  const [amount, setAmount] = useState('100');
+  const [currency, setCurrency] = useState('SAR');
+  const [stores, setStores] = useState<any[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState('');
 
   useEffect(() => {
     if (!('NDEFReader' in window)) {
       setNfcSupported(false);
     }
-  }, []);
+    if (user) {
+      axios.get(`/api/bitcart/stores?userId=${user.uid}`)
+        .then(res => {
+          const results = res.data.results || res.data || [];
+          setStores(results);
+          if (results.length > 0) setSelectedStoreId(results[0].id);
+        })
+        .catch(err => console.error('Failed to fetch stores:', err));
+    }
+  }, [user]);
+
+  const handleNfcReading = async (event: any) => {
+    const { message: nfcMessage, serialNumber } = event;
+    setStatus('processing');
+    
+    let nfcData = serialNumber;
+    
+    if (nfcMessage.records && nfcMessage.records.length > 0) {
+      for (const record of nfcMessage.records) {
+        if (record.recordType === "url" || record.recordType === "text") {
+          const decoder = new TextDecoder();
+          nfcData = decoder.decode(record.data);
+          break;
+        }
+      }
+    }
+
+    setMessage(`Detected: ${nfcData.substring(0, 30)}...`);
+
+    try {
+      const response = await axios.post('/api/bitcart/invoices', {
+        userId: user?.uid,
+        store_id: selectedStoreId,
+        price: parseFloat(amount),
+        currency,
+        nfcData
+      });
+
+      setStatus('success');
+      setMessage(`Payment successful! Invoice: ${response.data.id}`);
+    } catch (error) {
+      setStatus('error');
+      setMessage('Payment failed. Please check your Bitcart configuration.');
+    }
+  };
 
   const startNfcScan = async () => {
     if (!nfcSupported) {
       setStatus('error');
       setMessage('Web NFC is not supported on this browser. Please use Chrome on Android.');
+      return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      setStatus('error');
+      setMessage('Please enter a valid amount.');
+      return;
+    }
+
+    if (!selectedStoreId) {
+      setStatus('error');
+      setMessage('Please select a Bitcart store first.');
       return;
     }
 
@@ -33,45 +91,7 @@ export default function NfcPayment({ user, storeId, amount, currency }: NfcPayme
       setStatus('scanning');
       setMessage('Ready to scan. Please bring the NFC tag close to your device.');
 
-      ndef.onreading = async (event: any) => {
-        const { message: nfcMessage, serialNumber } = event;
-        setStatus('processing');
-        
-        let nfcData = serialNumber;
-        
-        // Try to read NDEF records
-        if (nfcMessage.records && nfcMessage.records.length > 0) {
-          for (const record of nfcMessage.records) {
-            if (record.recordType === "url" || record.recordType === "text") {
-              const decoder = new TextDecoder();
-              nfcData = decoder.decode(record.data);
-              break;
-            }
-          }
-        }
-
-        setMessage(`Detected: ${nfcData.substring(0, 30)}...`);
-
-        try {
-          const response = await axios.post('/api/bitcart/invoice', {
-            userId: user?.uid,
-            storeId,
-            amount,
-            currency,
-            nfcData
-          });
-
-          setStatus('success');
-          setMessage(`Payment successful! Invoice: ${response.data.id}`);
-          
-          if (response.data.payment_url) {
-            window.open(response.data.payment_url, '_blank');
-          }
-        } catch (error) {
-          setStatus('error');
-          setMessage('Payment failed. Please check your Bitcart configuration.');
-        }
-      };
+      ndef.onreading = handleNfcReading;
 
       ndef.onreadingerror = () => {
         setStatus('error');
@@ -97,14 +117,75 @@ export default function NfcPayment({ user, storeId, amount, currency }: NfcPayme
       </div>
 
       {!nfcSupported && (
-        <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl flex gap-3 mb-6">
-          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-          <p className="text-sm text-amber-800">
-            <strong>Browser Not Supported:</strong> Web NFC is currently only supported in Chrome for Android. 
-            iOS and Desktop browsers do not support this feature yet.
-          </p>
+        <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl flex flex-col gap-3 mb-6">
+          <div className="flex gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+            <p className="text-sm text-amber-800">
+              <strong>Browser Not Supported:</strong> Web NFC is currently only supported in Chrome for Android. 
+              iOS and Desktop browsers do not support this feature yet.
+            </p>
+          </div>
+          <button 
+            onClick={() => {
+              setNfcSupported(true); // Temporarily enable for simulation
+              setMessage('Simulation Mode: Ready to scan.');
+              setStatus('scanning');
+              setTimeout(() => {
+                const mockEvent = { serialNumber: 'SIM-NFC-TAG-998877', message: { records: [] } };
+                // We can't easily trigger the onreading event from outside, 
+                // so we'll just call the logic directly
+                handleNfcReading(mockEvent);
+              }, 2000);
+            }}
+            className="text-xs font-bold text-amber-700 bg-amber-100 px-3 py-2 rounded-lg hover:bg-amber-200 transition-colors self-start"
+          >
+            Simulate NFC Tap (For Demo)
+          </button>
         </div>
       )}
+
+      <div className="mb-6">
+        <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Select Bitcart Store</label>
+        <select 
+          value={selectedStoreId}
+          onChange={(e) => setSelectedStoreId(e.target.value)}
+          className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-zinc-900 outline-none font-bold"
+        >
+          {stores.length === 0 && <option value="">No stores found</option>}
+          {stores.map((store: any) => (
+            <option key={store.id} value={store.id}>{store.name}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        <div>
+          <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Amount</label>
+          <input 
+            type="number" 
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-zinc-900 outline-none font-mono font-bold"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-zinc-500 uppercase mb-2">Currency</label>
+          <select 
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-zinc-900 outline-none font-bold"
+          >
+            <option>SAR</option>
+            <option>AED</option>
+            <option>KWD</option>
+            <option>BHD</option>
+            <option>OMR</option>
+            <option>QAR</option>
+            <option>BTC</option>
+            <option>USDT</option>
+          </select>
+        </div>
+      </div>
 
       <div className="relative group mb-8">
         <div className={`aspect-square rounded-3xl border-4 border-dashed transition-all flex flex-col items-center justify-center gap-4 ${
