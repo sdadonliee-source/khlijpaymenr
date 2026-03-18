@@ -2,7 +2,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
-  lang: 'EN' | 'AR';
+  lang?: 'EN' | 'AR';
 }
 
 interface State {

@@ -4,6 +4,10 @@ import { LayoutDashboard, Wallet, ShoppingCart, Package, ExternalLink, RefreshCw
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { motion, AnimatePresence } from 'motion/react';
+import CreateStoreModal from './modals/CreateStoreModal';
+import CreateWalletModal from './modals/CreateWalletModal';
+import CreateProductModal from './modals/CreateProductModal';
+import CreateInvoiceModal from './modals/CreateInvoiceModal';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -19,22 +23,46 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
   const [error, setError] = useState('');
   const [bitcartUrl, setBitcartUrl] = useState('');
   const [posAmount, setPosAmount] = useState('');
+  const [debouncedPosAmount, setDebouncedPosAmount] = useState('');
+  const [posError, setPosError] = useState('');
   const [posCurrency, setPosCurrency] = useState('BTC');
   const [posStatus, setPosStatus] = useState<'idle' | 'loading' | 'success'>('idle');
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (parseFloat(posAmount) > 0) {
+        setDebouncedPosAmount(posAmount);
+        setPosError('');
+      } else if (posAmount !== '') {
+        setPosError('Please enter a positive number');
+      } else {
+        setDebouncedPosAmount('');
+        setPosError('');
+      }
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [posAmount]);
   const [activeInvoice, setActiveInvoice] = useState<any>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formData, setFormData] = useState<any>({});
+  const [stores, setStores] = useState<any[]>([]);
 
   useEffect(() => {
-    // Internal Bitcart is always available at /api/bitcart
-    setBitcartUrl(window.location.origin + '/api/bitcart');
+    // Use the configured Bitcart URL, fallback to local proxy if not set
+    setBitcartUrl(import.meta.env.VITE_BITCART_URL || window.location.origin + '/api/bitcart');
   }, []);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (user && bitcartUrl) {
+      axios.get(`${bitcartUrl}/stores?userId=${user.uid}`).then(res => setStores(res.data.results || res.data));
+    }
+  }, [user, bitcartUrl]);
+
+  const handleCreateModalSave = async (data: any) => {
+    if (activeTab === 'products' || activeTab === 'pos') return;
     setLoading(true);
     try {
-      await axios.post(`/api/bitcart/${activeTab}?userId=${user.uid}`, formData);
+      await axios.post(`${bitcartUrl}/${activeTab}?userId=${user.uid}`, data);
       setShowCreateModal(false);
       setFormData({});
       fetchData(activeTab, true);
@@ -47,9 +75,10 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this?')) return;
+    if (activeTab === 'products' || activeTab === 'pos' || activeTab === 'invoices') return;
     setLoading(true);
     try {
-      await axios.delete(`/api/bitcart/${activeTab}/${id}?userId=${user.uid}`);
+      await axios.delete(`${bitcartUrl}/${activeTab}/${id}?userId=${user.uid}`);
       fetchData(activeTab, true);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.response?.data?.error || `Failed to delete ${activeTab}`);
@@ -61,7 +90,7 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
   const syncInvoice = async (id: string) => {
     setLoading(true);
     try {
-      await axios.get(`/api/bitcart/invoices/${id}?userId=${user.uid}`);
+      await axios.get(`${bitcartUrl}/invoices/${id}?userId=${user.uid}`);
       fetchData('invoices', true);
     } catch (err: any) {
       setError('Sync failed');
@@ -71,20 +100,20 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
   };
 
   const createPosInvoice = async () => {
-    if (!posAmount || !user) return;
+    if (!debouncedPosAmount || !user) return;
     setPosStatus('loading');
     try {
       // Use the first store for POS
-      const storesRes = await axios.get(`/api/bitcart/stores?userId=${user.uid}`);
+      const storesRes = await axios.get(`${bitcartUrl}/stores?userId=${user.uid}`);
       const stores = storesRes.data.results || storesRes.data;
       const storeId = stores?.[0]?.id;
       
       if (!storeId) throw new Error('No store found. Create a store first.');
 
-      const response = await axios.post('/api/bitcart/invoices', {
+      const response = await axios.post(`${bitcartUrl}/invoices`, {
         userId: user.uid,
         store_id: storeId,
-        price: parseFloat(posAmount),
+        price: parseFloat(debouncedPosAmount),
         currency: posCurrency
       });
 
@@ -110,8 +139,20 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.get(`/api/bitcart/${tab}?userId=${user.uid}`);
-      const results = response.data.results || response.data;
+      const response = await axios.get(`${bitcartUrl}/${tab}?userId=${user.uid}`);
+      let results = response.data.results || response.data;
+      
+      if (tab === 'wallets' && Array.isArray(results)) {
+        results = await Promise.all(results.map(async (wallet: any) => {
+          try {
+            const balanceRes = await axios.get(`${bitcartUrl}/balance?address=${wallet.xpub || wallet.id}`);
+            return { ...wallet, balance: balanceRes.data.balance || 0 };
+          } catch (e) {
+            return { ...wallet, balance: 'N/A' };
+          }
+        }));
+      }
+
       setData(Array.isArray(results) ? results : [results]);
       setLastFetchTime(prev => ({ ...prev, [tab]: now }));
     } catch (err: any) {
@@ -304,7 +345,8 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
                         className="w-full text-5xl font-mono bg-transparent text-white outline-none placeholder:text-zinc-700"
                       />
                     </div>
-                    <div className="flex gap-2">
+                    {posError && <p className="text-red-500 text-xs mt-2">{posError}</p>}
+                    <div className="flex gap-2 mt-4">
                       {['BTC', 'USDT', 'SAR'].map(curr => (
                         <button 
                           key={curr}
@@ -442,118 +484,32 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
         </div>
       )}
 
-      {/* Create Modal */}
-      <AnimatePresence>
-        {showCreateModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white rounded-[2.5rem] p-10 max-w-md w-full shadow-2xl relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 w-full h-2 bg-zinc-900" />
-              <h3 className="text-3xl font-bold mb-2 tracking-tight">Create {activeTab.slice(0, -1)}</h3>
-              <p className="text-zinc-500 text-sm mb-8">Fill in the details for your new {activeTab.slice(0, -1)}</p>
-              
-              <form onSubmit={handleCreate} className="space-y-6">
-                {activeTab === 'stores' && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Store Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        className="w-full p-4 bg-zinc-50 border border-zinc-100 rounded-2xl outline-none focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Default Currency</label>
-                      <input 
-                        type="text" 
-                        placeholder="USD"
-                        className="w-full p-4 bg-zinc-50 border border-zinc-100 rounded-2xl outline-none focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                        onChange={(e) => setFormData({ ...formData, default_currency: e.target.value })}
-                      />
-                    </div>
-                  </>
-                )}
-                {activeTab === 'wallets' && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Wallet Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        className="w-full p-4 bg-zinc-50 border border-zinc-100 rounded-2xl outline-none focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Currency (e.g. btc)</label>
-                      <input 
-                        type="text" 
-                        required
-                        className="w-full p-4 bg-zinc-50 border border-zinc-100 rounded-2xl outline-none focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                        onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">XPub / Address</label>
-                      <input 
-                        type="text" 
-                        required
-                        className="w-full p-4 bg-zinc-50 border border-zinc-100 rounded-2xl outline-none focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                        onChange={(e) => setFormData({ ...formData, xpub: e.target.value })}
-                      />
-                    </div>
-                  </>
-                )}
-                {activeTab === 'products' && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Product Name</label>
-                      <input 
-                        type="text" 
-                        required
-                        className="w-full p-4 bg-zinc-50 border border-zinc-100 rounded-2xl outline-none focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Price</label>
-                      <input 
-                        type="number" 
-                        required
-                        step="0.01"
-                        className="w-full p-4 bg-zinc-50 border border-zinc-100 rounded-2xl outline-none focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                        onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) })}
-                      />
-                    </div>
-                  </>
-                )}
-                <div className="flex gap-4 pt-6">
-                  <button 
-                    type="button"
-                    onClick={() => setShowCreateModal(false)}
-                    className="flex-1 py-4 bg-zinc-100 text-zinc-900 rounded-2xl font-bold hover:bg-zinc-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    disabled={loading}
-                    className="flex-1 py-4 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-colors disabled:opacity-50 shadow-xl shadow-zinc-200"
-                  >
-                    {loading ? 'Creating...' : 'Create'}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Create Modals */}
+      <CreateStoreModal 
+        isOpen={showCreateModal && activeTab === 'stores'}
+        onClose={() => setShowCreateModal(false)}
+        onSave={(data) => { setFormData(data); handleCreateModalSave(data); }}
+        loading={loading}
+      />
+      <CreateWalletModal 
+        isOpen={showCreateModal && activeTab === 'wallets'}
+        onClose={() => setShowCreateModal(false)}
+        onSave={(data) => { setFormData(data); handleCreateModalSave(data); }}
+        loading={loading}
+      />
+      <CreateProductModal 
+        isOpen={showCreateModal && activeTab === 'products'}
+        onClose={() => setShowCreateModal(false)}
+        onSave={(data) => { setFormData(data); handleCreateModalSave(data); }}
+        loading={loading}
+      />
+      <CreateInvoiceModal 
+        isOpen={showCreateModal && activeTab === 'invoices'}
+        onClose={() => setShowCreateModal(false)}
+        onSave={(data) => { setFormData(data); handleCreateModalSave(data); }}
+        loading={loading}
+        stores={stores}
+      />
     </div>
   );
 }
