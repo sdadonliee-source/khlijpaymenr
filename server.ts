@@ -25,12 +25,11 @@ if (!admin.apps.length) {
 }
 const adminDb = admin.firestore();
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+export const app = express();
+const PORT = 3000;
 
-  app.use(cors());
-  app.use(express.json());
+app.use(cors());
+app.use(express.json());
 
   // --- Internal Bitcart Logic (The "Core") ---
 
@@ -116,6 +115,7 @@ async function startServer() {
   app.post('/api/bitcart/stores', async (req, res) => {
     try {
       const { userId, name, currency } = req.body;
+      if (!name) return res.status(400).json({ error: 'Store name is required' });
       const docRef = await adminDb.collection('bitcart_stores').add({
         userId,
         name,
@@ -123,6 +123,22 @@ async function startServer() {
         createdAt: new Date().toISOString()
       });
       res.json({ id: docRef.id, name, currency });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put('/api/bitcart/stores/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, currency } = req.body;
+      if (!name) return res.status(400).json({ error: 'Store name is required' });
+      await adminDb.collection('bitcart_stores').doc(id).update({
+        name,
+        currency: currency || 'USD',
+        updatedAt: new Date().toISOString()
+      });
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -317,7 +333,7 @@ async function startServer() {
     app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
+// Only listen if not in Vercel
+if (!process.env.VERCEL) {
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on http://localhost:${PORT}`));
 }
-
-startServer();

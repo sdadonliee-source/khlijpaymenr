@@ -4,7 +4,7 @@ import { LayoutDashboard, Wallet, ShoppingCart, Package, ExternalLink, RefreshCw
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { motion, AnimatePresence } from 'motion/react';
-import CreateStoreModal from './modals/CreateStoreModal';
+import StoreModal from './modals/StoreModal';
 import CreateWalletModal from './modals/CreateWalletModal';
 import CreateProductModal from './modals/CreateProductModal';
 import CreateInvoiceModal from './modals/CreateInvoiceModal';
@@ -44,6 +44,7 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
   }, [posAmount]);
   const [activeInvoice, setActiveInvoice] = useState<any>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingStore, setEditingStore] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
   const [stores, setStores] = useState<any[]>([]);
 
@@ -62,12 +63,17 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
     if (activeTab === 'products' || activeTab === 'pos') return;
     setLoading(true);
     try {
-      await axios.post(`${bitcartUrl}/${activeTab}?userId=${user.uid}`, data);
+      if (editingStore) {
+        await axios.put(`${bitcartUrl}/${activeTab}/${editingStore.id}?userId=${user.uid}`, data);
+      } else {
+        await axios.post(`${bitcartUrl}/${activeTab}?userId=${user.uid}`, data);
+      }
       setShowCreateModal(false);
+      setEditingStore(null);
       setFormData({});
       fetchData(activeTab, true);
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.response?.data?.error || `Failed to create ${activeTab}`);
+      setError(err.response?.data?.detail || err.response?.data?.error || `Failed to ${editingStore ? 'update' : 'create'} ${activeTab}`);
     } finally {
       setLoading(false);
     }
@@ -416,6 +422,14 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
                       {item.status}
                     </span>
                   )}
+                  {activeTab === 'stores' && (
+                    <button 
+                      onClick={() => { setEditingStore(item); setShowCreateModal(true); }}
+                      className="text-[10px] px-2.5 py-1 rounded-full uppercase font-bold tracking-wider bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-zinc-200"
+                    >
+                      Edit
+                    </button>
+                  )}
                 </div>
                 
                 <div className="space-y-3">
@@ -485,11 +499,12 @@ export default function BitcartHub({ lang, user }: BitcartHubProps) {
       )}
 
       {/* Create Modals */}
-      <CreateStoreModal 
+      <StoreModal 
         isOpen={showCreateModal && activeTab === 'stores'}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => { setShowCreateModal(false); setEditingStore(null); }}
         onSave={(data) => { setFormData(data); handleCreateModalSave(data); }}
         loading={loading}
+        initialData={editingStore}
       />
       <CreateWalletModal 
         isOpen={showCreateModal && activeTab === 'wallets'}

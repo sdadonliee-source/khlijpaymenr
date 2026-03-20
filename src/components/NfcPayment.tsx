@@ -125,22 +125,6 @@ export default function NfcPayment({ user, storeId }: NfcPaymentProps) {
               iOS and Desktop browsers do not support this feature yet.
             </p>
           </div>
-          <button 
-            onClick={() => {
-              setNfcSupported(true); // Temporarily enable for simulation
-              setMessage('Simulation Mode: Ready to scan.');
-              setStatus('scanning');
-              setTimeout(() => {
-                const mockEvent = { serialNumber: 'SIM-NFC-TAG-998877', message: { records: [] } };
-                // We can't easily trigger the onreading event from outside, 
-                // so we'll just call the logic directly
-                handleNfcReading(mockEvent);
-              }, 2000);
-            }}
-            className="text-xs font-bold text-amber-700 bg-amber-100 px-3 py-2 rounded-lg hover:bg-amber-200 transition-colors self-start"
-          >
-            Simulate NFC Tap (For Demo)
-          </button>
         </div>
       )}
 
